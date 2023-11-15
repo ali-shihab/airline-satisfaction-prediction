@@ -50,48 +50,41 @@ main<-function(){
   summary(data)
   NPREPROCESSING_prettyDataset(data)
   
-  # determine field types, unique values
-  fieldTypes<-NPREPROCESSING_initialFieldType(data)
-  print("Field types:/n", fieldTypes)
+  # determine number of unique values of each field
+  getUniqueValues(data)
   
-  numeric_fields<-names(loans)[field_types=="NUMERIC"]
-  symbolic_fields<-names(loans)[field_types=="SYMBOLIC"]
+  # determine field types
+  fieldTypes<-getColumnTypes(data)
   
-  number_of_numeric<-length(numeric_fields)
-  number_of_symbolic<-length(symbolic_fields)
-  
-  print(paste("number of numeric fields=",number_of_numeric))
-  print(numeric_fields)
-  print(paste("number of symbolic fields=",number_of_symbolic))
-  print(symbolic_fields)
-  
-  NPREPROCESSING_prettyDataset(loans)
+  # display descriptive statistics
+  NPREPROCESSING_prettyDataset(data)
   
   # visualise discrete data
-  field_types1<-NPREPROCESSING_discreteNumeric(dataset=data,
-                                               field_types=field_types,
+  fieldTypes1<-NPREPROCESSING_discreteNumeric(dataset=data,
+                                               field_types=fieldTypes,
                                                cutoff=DISCRETE_BINS)
-  print("Field types after discrete-binning:/n",field_types1)
+  print("Field types after discrete-binning:/n")
+  print(fieldTypes1)
   
-  results<-data.frame(field=names(loans),initial=field_types,types1=field_types1)
+  results<-data.frame(field=names(data),initial=fieldTypes,types1=fieldTypes1)
   print(formattable::formattable(results))
   
   # visualise distributions of data
   histPlots <-visualiseHist(data)
+  print(histPlots)
+  
+  # importance of each field via randomforest
+  
   
   # enhanced visualisation of distribution, correlation
   # and plot of pairs 
   pairPlot <- ggpairs(data)
+  print(pairPlot)
   
   # heatmap of correlations
   
   # check missing values
   
-  # outlier analysis
-  # naive
-  ordinals<-loans[,which(field_types1==TYPE_ORDINAL)]
-  ordinals<-NPREPROCESSING_outlier(ordinals=ordinals,confidence=OUTLIER_CONF)
-  # LOF outlier removal compared to Random Forest
   
   # ************************************************
   # PRE-PROCESSING & VISUALISATION
@@ -100,14 +93,23 @@ main<-function(){
   # deal with missing values
   
   # encode categoricals
-  data <- encodeCategoricals(data)
+  #data <- encodeCategoricals(data)
+  
+  # standardise/scale data
+  
+  # outlier analysis
+  # naive
+  #ordinals<-data[,which(fieldTypes1==TYPE_ORDINAL)]
+  #ordinals<-NPREPROCESSING_outlier(ordinals=ordinals,confidence=OUTLIER_CONF)
+  
+  # LOF outlier removal compared to Random Forest
+  
+  
   
   # descriptive summary of structure & statistics
   # post-encoding of categoricals
-  str(data)
-  summary(data)
-  
-  # standardise/scale data
+  #str(data)
+  #summary(data)
   
   # outlier removal
   

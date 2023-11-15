@@ -54,6 +54,22 @@
 # 1.23      18/2/2021   NPREPROCESSING_discreteNumeric() neater plotting
 #                       NPREPROCESSING_categorical() re-write for efficiency
 # ************************************************
+# CONSTANTS
+# ************************************************
+HOLDOUT           <- 70                   # % split to create TRAIN dataset
+
+SCALE_DATASET     <- TRUE                 # Set to true to scale dataset before ML stage
+OUTLIER_CONF      <- 0.95                 # Confidence p-value for outlier detection
+# Set to negative means analyse but do not replace outliers
+
+TYPE_DISCRETE     <- "DISCRETE"           # field is discrete (numeric)
+TYPE_ORDINAL      <- "ORDINAL"            # field is continuous numeric
+TYPE_SYMBOLIC     <- "SYMBOLIC"           # field is a string
+TYPE_NUMERIC      <- "NUMERIC"            # field is initially a numeric
+TYPE_IGNORE       <- "IGNORE"             # field is not encoded
+
+DISCRETE_BINS     <- 6                    # Number of empty bins to determine discrete
+MAX_LITERALS      <- 55                   # Maximum number of 1-hot ecoding new fields
 
 # Pre-Processing a Dataset functions
 
@@ -155,7 +171,12 @@ NPREPROCESSING_initialFieldType<-function(dataset){
 
   field_types<-vector()
   for(field in 1:(ncol(dataset))){
-
+    
+    # pre-build manualTypes global variable
+    #manualTypes<<-rbind(manualTypes,data.frame(name=names(dataset)[field],
+                                               #type=class(dataset)[field],
+                                               #stringsAsFactors = FALSE))
+    
     entry<-which(manualTypes$name==names(dataset)[field])
     if (length(entry)>0){
       field_types[field]<-manualTypes$type[entry]
@@ -169,6 +190,7 @@ NPREPROCESSING_initialFieldType<-function(dataset){
       field_types[field]<-TYPE_SYMBOLIC
     }
   }
+  print(manualTypes)
   return(field_types)
 }
 
