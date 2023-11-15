@@ -50,6 +50,27 @@ main<-function(){
   summary(data)
   NPREPROCESSING_prettyDataset(data)
   
+  # check missing values
+  missing_values_summary <- colSums(is.na(data))
+  print(missing_values_summary)
+  
+  # check proportion of missing vals in each column
+  missing_percentage <- colSums(is.na(
+    data)) / nrow(data) * 100
+  print(missing_percentage)
+  
+  # visualise missing values
+  aggr_plot <- VIM::aggr(data, col=c('navyblue','red'), numbers=TRUE, 
+                         sortVars=TRUE, 
+                         labels=names(data), 
+                         cex.axis=.7, 
+                         gap=3, 
+                         ylab=c("Histogram of missing data","Pattern"))
+  print(aggr_plot)
+  
+  
+  # deal with missing values
+  
   # determine number of unique values of each field
   getUniqueValues(data)
   
@@ -69,28 +90,30 @@ main<-function(){
   results<-data.frame(field=names(data),initial=fieldTypes,types1=fieldTypes1)
   print(formattable::formattable(results))
   
+  # VISUALISATIONS NOT WORKING BECAUSE DATASET TOO LARGE
+  # ---------------------------------------------------
   # visualise distributions of data
-  histPlots <-visualiseHist(data)
-  print(histPlots)
+  #histPlots <-visualiseHist(data)
+  #print(histPlots)
   
   # importance of each field via randomforest
   
   
   # enhanced visualisation of distribution, correlation
   # and plot of pairs 
-  pairPlot <- ggpairs(data)
-  print(pairPlot)
+  #pairPlot <- ggpairs(data)
+  #print(pairPlot)
   
   # heatmap of correlations
-  
-  # check missing values
+  correlationMatrix <- cor(data %>% select(where(is.numeric)), 
+                           method = "pearson")
+  corrplot(correlationMatrix, method = "color", type = "upper", 
+           order = "hclust", tl.col = "black", tl.srt = 45)
   
   
   # ************************************************
   # PRE-PROCESSING & VISUALISATION
   # ************************************************
-  
-  # deal with missing values
   
   # encode categoricals
   #data <- encodeCategoricals(data)
@@ -150,6 +173,7 @@ MYLIBRARIES<-c("outliers",
                "ggplot2",
                "GGally",
                "dplyr",
+               "VIM",
                "PerformanceAnalytics")
 library(pacman)
 pacman::p_load(char=MYLIBRARIES,install=TRUE,character.only=TRUE)
