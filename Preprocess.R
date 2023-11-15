@@ -1,18 +1,82 @@
+# ************************************************
+# ************************************************
+# Ali - Group 25 - Data Pre-procesisng script.
+#
+# This script contains the custom helper functions
+# necessary for my associated ExploratoryDataAnalysis.R
+# script. This was also assisted by the following
+# functions from the PBA labXDataPreprocessing.R script:
+# - N
+# ************************************************
+# ************************************************
 # Load necessary libraries
-library(tidyverse)
-library(caret)
-library(dplyr)
-library(randomForest)
-library(DMwR)
+library(pacman)
+pacman::p_load(char=MYLIBRARIES,install=TRUE,character.only=TRUE)
+MYLIBRARIES<-c("outliers",
+               "caret",
+               "randomForest",
+               "corrplot",
+               "MASS",
+               "formattable",
+               "stats",
+               "tidyr",
+               "ggplot2",
+               "GGally",
+               "dplyr",
+               "PerformanceAnalytics",
+               "DMwR")
+# ************************************************
+# CONSTANTS
 
-# Load the datasets
-train <- read.csv("path/to/train.csv")
-test <- read.csv("path/to/test.csv")
+# ************************************************
+# HELPER FUNCTIONS - MOVE TO PREPROCESSING LIBRARY
+# ************************************************
+# READ DATA FUNCTION
+# ************************************************
+readData<-function(train, test) {
+  
+  # read both train and test datasets
+  trainData<-read.csv(train,encoding="UTF-8",stringsAsFactors = FALSE)
+  testData<-read.csv(train,encoding="UTF-8",stringsAsFactors = FALSE)
+  
+  # combine the datasets
+  combined <- rbind(trainData, testData)
+  
+  # remove non-alphanumeric characters
+  names(combined)<-NPREPROCESSING_removePunctuation(names(combined))
+  
+  print(paste("CSV data read. Records=",nrow(combined)))
+  return(combined)
+}
+# ************************************************
+# ENCODE CATEGORICALS
+# ************************************************
+encodeCategoricals<-function(dataFrame){
 
-
-
-# Combine the datasets
-combined <- rbind(train, test)
+  encodedCategoricalDataFrame <- as.data.frame(dummyVars(
+    "~ .", 
+    data = dataFrame)) %>% predict(dataFrame)
+  
+  return(encodedCategoricalDataFrame)
+}
+# ************************************************
+# HISTOGRAM VISULISATIONS OF COLUMNS
+# ************************************************
+# numeric_cols <- sapply(data, is.numeric)
+# data_num <- data[, numeric_cols]
+visualiseHist<-function(dataFrame){
+  
+  histPlots <- lapply(names(dataFrame), function(col) {
+    
+    ggplot(dataFrame, aes_string(x = col)) + 
+      geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+      theme_minimal() +
+      ggtitle(paste("Histogram of", col))
+    
+  })
+  
+  return(histPlots)
+}
 
 
 
