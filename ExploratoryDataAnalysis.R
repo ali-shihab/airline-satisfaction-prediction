@@ -50,6 +50,11 @@ main<-function(){
   summary(data)
   NPREPROCESSING_prettyDataset(data)
   
+  # determine number of unique values of each field
+  # ignoring missing values
+  uniqueValSummary<-getUniqueValues(data)
+  print(uniqueValSummary)
+  
   # check missing values
   missing_values_summary <- colSums(is.na(data))
   print(missing_values_summary)
@@ -60,19 +65,18 @@ main<-function(){
   print(missing_percentage)
   
   # visualise missing values
-  aggr_plot <- VIM::aggr(data, col=c('navyblue','red'), numbers=TRUE, 
-                         sortVars=TRUE, 
-                         labels=names(data), 
-                         cex.axis=.7, 
-                         gap=3, 
-                         ylab=c("Histogram of missing data","Pattern"))
-  print(aggr_plot)
+  #aggr_plot <- VIM::aggr(data, col=c('navyblue','red'), numbers=TRUE, 
+                         #sortVars=TRUE, 
+                         #labels=names(data), 
+                         #cex.axis=.7, 
+                         #gap=3, 
+                         #ylab=c("Histogram of missing data","Pattern"))
+  #print(aggr_plot)
   
   
   # deal with missing values
-  
-  # determine number of unique values of each field
-  getUniqueValues(data)
+  # visualise prob density pre-imputation
+  visualiseDist(data)
   
   # determine field types
   fieldTypes<-getColumnTypes(data)
@@ -105,10 +109,10 @@ main<-function(){
   #print(pairPlot)
   
   # heatmap of correlations
-  correlationMatrix <- cor(data %>% select(where(is.numeric)), 
-                           method = "pearson")
-  corrplot(correlationMatrix, method = "color", type = "upper", 
-           order = "hclust", tl.col = "black", tl.srt = 45)
+  #correlationMatrix <- cor(data %>% select(where(is.numeric)), 
+                           #method = "pearson")
+  #corrplot(correlationMatrix, method = "color", type = "upper", 
+           #order = "hclust", tl.col = "black", tl.srt = 45)
   
   
   # ************************************************

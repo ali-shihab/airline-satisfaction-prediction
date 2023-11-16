@@ -87,7 +87,7 @@ getColumnTypes <- function(df) {
 # GET UNIQUE VALUES OF EACH COLUMN
 # ************************************************
 getUniqueValues<-function(df) {
-  uniqueCounts <- sapply(df, function(x) length(unique(x)))
+  uniqueCounts <- sapply(df, function(x) length(unique(na.omit(x))))
   return(uniqueCounts)
 }
 # ************************************************
@@ -129,6 +129,13 @@ visualiseHist<-function(dataFrame){
   return(histPlots)
 }
 
+visualiseDist<-function(data) {
+  data<-na.omit(data)
+  ggplot(data, aes(x = value, fill = type)) +
+    geom_density(alpha = 0.5) +
+    labs(title = "Density Plot of Original vs Imputed Data", x = "Value", y = "Density") +
+    scale_fill_manual(values = c("green", "orange"))
+}
 
 
 # One-hot encoding categorical features
