@@ -47,8 +47,31 @@ main<-function(){
   # descriptive summary of structure & statistics
   # pre-encoding of categoricals
   str(data)
+  head(data)
+  
+  # determine number of unique values of each field
+  getUniqueValues(data)
+  
+  # filter for duplicates
+  filtered_data <- data[!duplicated(data), ]
+  
+  # confirm whether duplicates existed
+  str(filtered_data)
+  getUniqueValues(filtered_data)
+  
+  # remove redundant feature
+  data<-data[,-1]
+  
+  # view more summary statistics
+  head(data)
   summary(data)
-  NPREPROCESSING_prettyDataset(data)
+  NPREPROCESSING_prettyDaDetaset(data)
+  
+  # determine field types
+  fieldTypes<-getColumnTypes(data)
+  
+  # check that "Class" feature has hierarchy
+  unique(data$Class)
   
   # check missing values
   missing_values_summary <- colSums(is.na(data))

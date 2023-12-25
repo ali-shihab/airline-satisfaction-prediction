@@ -36,7 +36,7 @@ readData<-function(train, test) {
   
   # read both train and test datasets
   trainData<-read.csv(train,encoding="UTF-8",stringsAsFactors = FALSE)
-  testData<-read.csv(train,encoding="UTF-8",stringsAsFactors = FALSE)
+  testData<-read.csv(test,encoding="UTF-8",stringsAsFactors = FALSE)
   
   # combine the datasets
   combined <- rbind(trainData, testData)
@@ -112,14 +112,14 @@ visualiseHist<-function(dataFrame){
     
     if (!is.character(col)){
       ggplot(dataFrame, aes(x = !!sym(col))) + 
-        geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+        geom_histogram(bins = 30, fill = 'black', color = 'black') +
         theme_minimal() +
         ggtitle(paste("Histogram of", col))
       
     } else {
     
       ggplot(dataFrame, aes(x = !!sym(col))) + 
-        geom_bar(bins = 30, fill = 'blue', color = 'black') +
+        geom_bar(fill = 'black', color = 'black') +
         theme_minimal() +
         ggtitle(paste("Histogram of", col))
     }
