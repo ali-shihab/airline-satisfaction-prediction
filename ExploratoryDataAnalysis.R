@@ -62,11 +62,26 @@ main<-function(){
   # remove redundant feature
   data<-data[,-1]
   
+  is_max_5 <- function(x) {
+    max(x, na.rm = TRUE) == 5
+  }
+  
+
+  
   # view more summary statistics
   head(data)
   summary(data)
-  NPREPROCESSING_prettyDaDetaset(data)
+  continuous <- data %>% select(Age, ArrivalDelayinMinutes, DepartureDelayinMinutes, FlightDistance)
+  print(length(continuous))
+  removed<-NPREPROCESSING_outlier(ordinals=continuous,confidence=0.95)
+  print(length(removed))
+  NPREPROCESSING_prettyDataset(continuous[complete.cases(continuous), ])
   
+  ratings <- data %>% select_if(is_max_5)
+  NPREPROCESSING_prettyDataset(ratings[complete.cases(ratings), ])
+  
+  categoricals <- data %>% select_if(is.character)
+  NPREPROCESSING_prettyDataset(categoricals[complete.cases(categoricals), ])
   # determine field types
   fieldTypes<-getColumnTypes(data)
   
