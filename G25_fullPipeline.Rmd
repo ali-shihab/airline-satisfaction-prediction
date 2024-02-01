@@ -13,9 +13,9 @@ output: html_document
  - NPREPROCESSING_discreteNumeric()
  
  CONTRIBUTORS: Ali, Adam, Paula
- Ali: All sections, except Adam's and Paula's
- Adam: Factory Analysis subsection
- Paula: Satisfaction by Rating Subsection
+ Ali: All sections, except subsection "Satisfaction by Rating"
+ Adam: "Factory Analysis" subsection, with help from Ali
+ Paula: "Satisfaction by Rating" subsection
  
 # Setup
 
