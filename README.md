@@ -3,6 +3,7 @@
 Team data science research project for fictional airline. Dataset, report, code file format and rest of project completed according to strict restraints from the academic institution.
 
 Data Source: https://www.kaggle.com/datasets/teejmahal20/airline-passenger-satisfaction
+
 Contributors: Myself (lead), 2 others, and a fourth, uncredited (no contribution) member
 
 ## Deliverables
