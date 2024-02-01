@@ -7,6 +7,8 @@
 # script. This was also assisted by the following
 # functions from the PBA lab3DataPreprocessing.R script:
 # - NPREPROCESSING_removePunctuation()
+#
+# Author: Ali
 # ************************************************
 # ************************************************
 # Load necessary libraries

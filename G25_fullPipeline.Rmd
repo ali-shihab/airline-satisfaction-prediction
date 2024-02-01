@@ -1,0 +1,2172 @@
+---
+title: Group 25's R Markdown Script
+output: html_document
+---
+
+# Ali - Group 25 - Exploratory Data Analysis script
+ This script contains the full data analysis
+ pipeline. This project was also assisted by the 
+ following functions from the PBA 
+ lab3DataPreprocessing.R script:
+ - NPREPROCESSING_prettydataset()
+ - NPREPROCESSING_outlier()
+ - NPREPROCESSING_discreteNumeric()
+ 
+ CONTRIBUTORS: Ali, Adam, Paula
+ Ali: All sections, except Adam's and Paula's
+ Adam: Factory Analysis subsection
+ Paula: Satisfaction by Rating Subsection
+ 
+# Setup
+
+## Imports
+
+```{r}
+# clears console
+cat("\014")
+
+# seed for reproducibility
+set.seed(123)
+
+# clear all environment variables
+rm(list=ls())
+```
+
+```{r}
+# Loads the libraries
+MYLIBRARIES<-c("outliers",
+               "caret",
+               "randomForest",
+               "corrplot",
+               "MASS",
+               "formattable",
+               "stats",
+               "tidyr",
+               "ggplot2",
+               "GGally",
+               "dplyr",
+               "VIM",
+               "PerformanceAnalytics",
+               "Rtsne",
+               "umap",
+               "plotly",
+               "dbscan",
+               "stats",
+               "rpart",
+               "rpart.plot",
+               "torch",
+               "reshape2",
+               "ggcorrplot",
+               "Metrics",
+               "pROC",
+               "e1071",
+               "rmarkdown",
+               "psych",
+               "glmnet"
+               )
+library(pacman)
+pacman::p_load(char=MYLIBRARIES,install=TRUE,character.only=TRUE)
+
+# load pre-processing helper functions
+source("Preprocess.R")
+source("lab3DataPrep.R")
+```
+
+## Definitions - Constants
+
+```{r}
+# ************************************************
+# CONSTANTS
+# ************************************************
+
+# datasets - these were split into train and test
+# by the original provider, and will be combined
+TRAIN_FILENAME <- "train.csv"
+TEST_FILENAME <- "test.csv"
+TARGET_FIELD <- "satisfaction"
+```
+
+## Load Datasets
+
+```{r}
+  # read in data and combine
+  data <- readData(TRAIN_FILENAME, TEST_FILENAME)
+```
+
+# Data Exploration & Preprocessing
+
+## Descriptive Statistics
+
+```{r}
+  # descriptive structure & statistics
+  str(data)
+```
+
+```{r}
+ head(data)
+```
+
+```{r}
+  # determine number of unique values of each field
+  getUniqueValues(data)
+
+  # determine field types
+  fieldTypes<-getColumnTypes(data)
+```
+
+## Remove Duplicates
+
+```{r}
+filtered_data <- data[!duplicated(data), ]
+```
+
+```{r}
+  str(data)
+```
+
+```{r}
+  # determine number of unique values of each field
+  getUniqueValues(filtered_data)
+```
+
+## Remove ID Fields
+
+```{r}
+data <- subset(data, select = -c(X, id))
+```
+
+```{r}
+head(data)
+```
+
+```{r}
+  # determine field types
+  fieldTypes<-getColumnTypes(data)
+```
+
+```{r}
+unique(data$Class)
+```
+
+## Missing Values
+
+### Detection
+
+```{r}
+  # check missing values
+  missing_values_summary <- colSums(is.na(data))
+  print(missing_values_summary)
+```
+
+```{r}
+  # check proportion of missing vals in each column
+  missing_percentage <- colSums(is.na(
+    data)) / nrow(data) * 100
+  print(missing_percentage)
+```
+
+### Imputation
+
+```{r}
+data_with_known_delay <- data %>% filter(!is.na(ArrivalDelayinMinutes))
+data_with_missing_delay <- data %>% filter(is.na(ArrivalDelayinMinutes))
+```
+
+```{r}
+trainIndex <- createDataPartition(data_with_known_delay$ArrivalDelayinMinutes, p = 0.8, list = FALSE, times = 1)
+
+# Create the train and test datasets
+trainData <- data_with_known_delay[trainIndex, ]
+testData <- data_with_known_delay[-trainIndex, ]
+```
+
+```{r}
+# Function to impute median
+#impute_median <- function(dataframe) {
+#  dataframe %>%
+#    mutate_if(is.numeric, function(x) {
+#      ifelse(is.na(x), median(x, na.rm = TRUE), x)
+#    })
+#}
+
+# Define the preprocessing method
+preProcValues_data <- preProcess(trainData, method = "range")
+
+# Transform the data using the scaling method
+scaled_train <- predict(preProcValues_data, trainData)
+scaled_test <- predict(preProcValues_data, testData)
+```
+
+```{r}
+# Run linear regression
+model <- lm(ArrivalDelayinMinutes ~ FlightDistance + DepartureDelayinMinutes + TypeofTravel + CustomerType, data = scaled_train)
+
+# Train Rsquared
+print(paste("train R-squared", summary(model)$r.squared))
+
+# Predict missing values
+predictions <- predict(model, newdata = scaled_test)
+
+# R-squared
+rss <- sum((scaled_test$ArrivalDelayinMinutes - predictions)^2)
+tss <- sum((scaled_test$ArrivalDelayinMinutes - mean(scaled_test$ArrivalDelayinMinutes))^2)
+r_squared <- 1 - rss/tss
+
+print(paste("test R-squared", r_squared))
+
+# Predict missing values
+predicted_delays <- predict(model, newdata = predict(preProcValues_data, data_with_missing_delay))
+
+# Define the preprocessing method
+preProcValues_full_data <- preProcess(data %>% filter(!is.na(ArrivalDelayinMinutes)), method = "range")
+
+# Transform the data using the scaling method
+scaled <- predict(preProcValues_full_data, data)
+
+# Impute the predicted values into the original dataset
+scaled$ArrivalDelayinMinutes[is.na(scaled$ArrivalDelayinMinutes)] <- predicted_delays
+
+print(predicted_delays)
+```
+
+```{r}
+  # check proportion of missing vals in each column
+  missing_percentage <- colSums(is.na(
+    scaled)) / nrow(scaled) * 100
+  print(missing_percentage)
+```
+
+## Convert categoricals to binary factors
+
+```{r}
+data <- scaled %>%
+  mutate_if(is.character, as.factor)
+```
+
+```{r}
+data <- data %>%
+  mutate(across(where(~is.factor(.) && nlevels(.) == 2), ~as.numeric(as.factor(.)) - 1))
+```
+
+```{r}
+str(data)
+```
+
+```{r}
+# convert class to numeric
+data <- data %>%
+  mutate(Class = as.numeric(Class))
+```
+
+```{r}
+str(data)
+```
+
+## Subsample 20,000 samples
+
+```{r}
+sampled <- sample_n(data, 20000)
+```
+
+## Min-Max Scale
+
+```{r}
+str(sampled)
+```
+
+```{r}
+# Define the preprocessing method
+preProcValues <- preProcess(sampled, method = "range")
+
+# Transform the data using the scaling method
+scaled <- predict(preProcValues, sampled)
+```
+
+```{r}
+str(scaled)
+```
+
+# Visualisation
+
+## Pairs - Continuous
+
+```{r}
+continuous <- scaled %>% select(Age, ArrivalDelayinMinutes, DepartureDelayinMinutes, FlightDistance)
+ggpairs(continuous)
+```
+
+## Distributions
+
+### Hist of Distributions
+
+```{r}
+  histPlots <-visualiseHist(data)
+  print(histPlots)
+```
+
+## tSNA & UMAP 3D interactive visualisations
+
+```{r}
+# Run t-SNE
+tsne_result <- Rtsne(scaled, dims = 3, perplexity = 43, max_iter = 500)
+
+# Create a 3D interactive plot using plotly
+plot_ly(x = tsne_result$Y[,1], y = tsne_result$Y[,2], z = tsne_result$Y[,3],
+        type = 'scatter3d', 
+        mode = 'markers', 
+        marker = list(color = scaled$satisfaction, colorscale = 'Viridis', size = 5)) %>%
+        layout(title = '3D tSNE Plot')
+```
+
+```{r}
+# Run UMAP
+umap_result <- umap(scaled, n_components = 3, n_neighbors = 43)
+
+# Create a 3D interactive plot using plotly
+plot_ly(x = umap_result$layout[,1], y = umap_result$layout[,2], z = umap_result$layout[,3],
+        type = 'scatter3d', 
+        mode = 'markers', 
+        marker = list(color = scaled$satisfaction, colorscale = 'Viridis', size = 5)) %>%
+        layout(title = '3D UMAP Plot')
+```
+
+# Outlier Detection - LOF
+
+## Standardise (z-score)
+
+```{r}
+standardised <- scaled %>%
+  mutate(across(-satisfaction,scale))
+```
+
+## Running a loop on this with varying neighbourhood sizes of 10 through 50
+
+```{r}
+# Outlier detection
+
+# Initialize a dataframe to store outlier indices and corresponding k values
+outliers_df <- data.frame(k = integer(), outlier_indices = I(list()))
+
+# Loop over k values from 10 to 50
+outlier_counts <- integer()
+
+predictors <- select(standardised, -satisfaction)
+
+for (k in 10:50) {
+  lof_scores <- lof(predictors, k = k)
+  
+  # Identifying outliers (e.g., LOF score > 1.5)
+  outlier_indices <- which(lof_scores > 1.5)
+  outlier_counts[k - 9] <- length(outlier_indices)
+  
+  # Append to the dataframe
+  outliers_df <- rbind(outliers_df, data.frame(k = k, outlier_indices = I(list(outlier_indices))))
+  
+  # Print the number of outliers for the current k
+  cat("k =", k, ": Number of outliers =", length(outlier_indices), "\n")
+}
+
+# Plotting the curve of the number of outliers against each k value
+ggplot(data = data.frame(k = 10:50, outliers = outlier_counts), aes(x = k, y = outliers)) +
+  geom_line() +
+  theme_minimal() +
+  labs(title = "Number of Outliers vs. k-value in LOF",
+       x = "k-value (Number of Neighbors)",
+       y = "Number of Outliers")
+```
+
+## Filter for true outliers
+
+```{r}
+# Create a vector to hold the frequency of each index appearing as an outlier
+index_frequencies <- list()
+
+# Loop through each column in outliers_df to tally the outlier indices
+for (k_value in 1:nrow(outliers_df)) {
+  # each cell in the dataframe is a list of indices
+  indices_list <- unlist(outliers_df[k_value, 2])
+  for (idx in indices_list) {
+    # Convert index to character to use as a name in the list
+    index_char <- as.character(idx)
+    if (index_char %in% names(index_frequencies)) {
+      index_frequencies[[index_char]] <- index_frequencies[[index_char]] + 1
+    } else {
+      index_frequencies[[index_char]] <- 1
+    }
+  }
+}
+
+# Create a dataframe for plotting
+frequency_df <- data.frame(Index = names(index_frequencies), Frequency = sapply(index_frequencies, identity)) %>%
+  arrange(desc(Frequency))
+
+
+# Plot the frequency of outlier indices
+ggplot(frequency_df, aes(x = Index, y = Frequency)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Frequency of Data Points Being Labeled as Outliers",
+       x = "Data Point Index",
+       y = "Frequency")
+```
+
+```{r}
+nrow(frequency_df)
+```
+
+```{r}
+confident_outliers <- frequency_df %>% filter(Frequency >= 41*0.95)
+print(nrow(confident_outliers))
+```
+
+```{r}
+# Plot the frequency of outlier indices
+ggplot(confident_outliers, aes(x = Index, y = Frequency)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Frequency of Data Points Being Labeled as Outliers",
+       x = "Data Point Index",
+       y = "Frequency")
+```
+
+```{r}
+
+ggplot(confident_outliers, aes(x = Frequency)) +
+  geom_histogram(binwidth = 1, fill = "black", color = "black") +
+  theme_minimal() +
+  labs(title = "Histogram of Outlier Frequencies",
+       x = "Frequency of Being Labeled as Outlier",
+       y = "Count of Data Point Indices")
+```
+
+## Sanity check on outliers
+
+### 3D Visualisation
+
+```{r}
+# Create a binary outlier flag
+outlier_flag_df <- predictors
+outlier_flag_df$outlier <- seq_len(nrow(outlier_flag_df)) %in% as.integer(confident_outliers$Index)
+```
+
+```{r}
+sum(outlier_flag_df$outlier)
+```
+
+### tSNE
+
+```{r}
+# Run t-SNE
+tsne_outlier_result <- Rtsne(outlier_flag_df %>% select(-outlier), dims = 3, perplexity = 43, max_iter = 500)
+
+# Create a 3D interactive plot using plotly
+plot_ly(x = tsne_outlier_result$Y[,1], y = tsne_outlier_result$Y[,2], z = tsne_outlier_result$Y[,3],
+        type = 'scatter3d', 
+        mode = 'markers', 
+        marker = list(color = outlier_flag_df$outlier, colorscale = 'Viridis', size = 5)) %>%
+        layout(title = '3D tSNE Outlier Plot')
+```
+
+### UMAP
+
+```{r}
+# Run UMAP
+umap_outlier_result <- umap(outlier_flag_df %>% select(-outlier), n_components = 3, n_neighbors = 43)
+
+# Create a 3D interactive plot using plotly
+plot_ly(x = umap_outlier_result$layout[,1], y = umap_outlier_result$layout[,2], z = umap_outlier_result$layout[,3],
+        type = 'scatter3d', 
+        mode = 'markers', 
+        marker = list(color = outlier_flag_df$outlier, colorscale = 'Viridis', size = 5)) %>%
+        layout(title = '3D tSNE Outlier Plot')
+```
+
+### Scatter - Flight Distance
+
+```{r}
+ggplot(outlier_flag_df, aes(x = outlier_flag_df$outlier, y = FlightDistance, color = outlier_flag_df$outlier)) +
+  geom_point(alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Scatter Plot with Outliers Highlighted")
+```
+
+### Boxplot - Arrival Delay
+
+```{r}
+# For a single feature
+ggplot(outlier_flag_df, aes(x = outlier_flag_df$outlier, y = ArrivalDelayinMinutes)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Box Plot for ArrivalDelayinMinutes by Outlier Flag")
+```
+
+### Hist & Dist plots
+
+```{r}
+# Histogram
+ggplot(outlier_flag_df, aes(x = FlightDistance, fill = outlier_flag_df$outlier)) +
+  geom_histogram(alpha = 0.6, bins = 30) +
+  theme_minimal() +
+  labs(title = "Histogram of Feature1 with Outliers")
+
+# Density Plot
+ggplot(outlier_flag_df, aes(x = DepartureDelayinMinutes, fill = outlier_flag_df$outlier)) +
+  geom_density(alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Density Plot of Feature1 with Outliers")
+```
+
+### Remove outliers
+
+```{r}
+anomalies <- outlier_flag_df %>% filter(outlier)
+cleaned <- standardised[!(standardised %in% anomalies)]
+```
+
+# Influence of Features
+
+## Feature Signifcance with Decision Tree
+
+```{r}
+# Build the model
+dt <- rpart(satisfaction ~ ., data = cleaned, method = "class")
+
+# Print the model summary
+print(dt)
+```
+
+```{r}
+# Plot the decision tree
+rpart.plot(dt, type = 4, extra = 2)
+```
+
+```{r}
+# Extract feature importance
+feature_importance <- dt$variable.importance
+
+# Print the feature importance
+print(feature_importance)
+
+# Optionally, you can sort and plot the importance
+sorted_importance <- sort(feature_importance, decreasing = TRUE)
+barplot(sorted_importance, main = "Feature Importance in Decision Tree", las = 2)
+```
+
+## Plotting Dist. of Satisfaction by Variable
+
+```{r}
+# Define function to plot the distribution of satisfaction by variable
+plot_satisfaction_by_variable <- function(data, variable, title) {
+  formatted_variable <- gsub("\\.", " ", tolower(variable))
+  
+  temp_df <- data[, c('satisfaction', variable)]
+  results <- as.data.frame(table(temp_df))
+  
+  ggplot(data = results, aes(x = satisfaction, y = Freq, fill = !!as.name(variable))) +
+    geom_bar(stat = "identity", position = position_dodge(), alpha = 0.70) +
+    geom_text(aes(label = Freq), fontface = "bold", vjust = 1.5,
+              position = position_dodge(.9), size = 2.5) +
+    labs(x = "\n Satisfaction", y = "Frequency\n", title = paste("\n Customer satisfaction based on", formatted_variable, "\n")) +
+    theme(plot.title = element_text(hjust = 0.5),
+          axis.title.x = element_text(face = "bold", colour = "black", size = 10),
+          axis.title.y = element_text(face = "bold", colour = "black", size = 10),
+          legend.title = element_text(face = "bold", size = 8))
+}
+```
+
+```{r}
+# plot by variable
+
+# Visualise
+variables <- names(cleaned)
+
+# Set up the plotting area
+par(mfrow = c(2, 4), pty = "m")
+options(repr.plot.width = 10, repr.plot.height = 5)
+
+# Loop through variables and generate plots
+for (variable in variables) {
+  plot <- plot_satisfaction_by_variable(cleaned, variable, variable)
+  print(plot)
+}
+```
+
+## Visualise Satisfaction Fields vs Max Occurrence of Ratings
+
+```{r}
+# Count the number of unique values for each column
+num_unique_values <- sapply(cleaned, function(col) length(unique(col)))
+
+# Select columns that have 5 or 6 unique values (ratings columns)
+sat_cols <- names(cleaned)[num_unique_values %in% c(5, 6)]
+```
+
+```{r}
+# get all ratings data
+sat_data <- cleaned[, sat_cols]
+
+# find max occurrence of each feature
+max_occurrence <- apply(sat_data, 1, function(x) names(which.max(table(x))))
+max_occurrence_df <- data.frame(max_occurrence = max_occurrence)
+max_sat <- cbind(max_occurrence_df, cleaned[, 'satisfaction', drop = FALSE])
+results <- data.frame(table(max_sat))
+
+# visualised the max occurrence of each feature against satisfaction column
+ggplot(data = results, aes(x = satisfaction, y = Freq, fill = max_occurrence)) +
+  geom_bar(stat = "identity", position = position_dodge(), alpha = 0.70) +
+  
+  geom_text(aes(label = Freq), fontface = "bold", vjust = 1.5,
+            position = position_dodge(.9), size = 2.5) +
+  labs(x = "\n satisfaction", y = "Frequency\n", title = "\n Customer satisfaction based on Maximum Occurrence of scale \n") +
+  theme(plot.title = element_text(hjust = 0.5), 
+        axis.title.x = element_text(face = "bold", colour = "black", size = 10),
+        axis.title.y = element_text(face = "bold", colour = "black", size = 10),
+        legend.title = element_text(face = "bold", size = 8))
+```
+
+# Dimensionality Reduction
+
+## Factor Analysis & Derivation for Delay variables
+
+```{r}
+# Extract the delay features
+delay_features <- cleaned %>% select(,c(DepartureDelayinMinutes, ArrivalDelayinMinutes))
+```
+
+```{r}
+# Run factor analysis on the delay features, replacing with a single factor representing delay
+fa_result <- fa(delay_features, nfactors = 1, fm = "minres")
+delays <- fa_result$scores[, 1]
+
+# Calculate the index where 'DepartureDelayinMinutes' is located
+delay1_index <- which(names(cleaned) == "DepartureDelayinMinutes")
+
+new_df <- data.frame(cleaned[1:(delay1_index - 1)],
+                                DelayinMinutes = delays,
+                                cleaned[(delay1_index+2):length(cleaned)])
+
+# Insert the factor scores into the dataframe at the position of the delays
+head(new_df)
+```
+
+```{r}
+cleaned <- new_df
+summary(cleaned)
+```
+
+## Autoencoder
+
+### Data prep
+
+```{r}
+train_indices <- createDataPartition(cleaned$satisfaction, p = 0.8, list = FALSE, times = 1)
+predictors <- cleaned %>% select(-satisfaction)
+train_data <- predictors[train_indices, ]
+test_data <- predictors[-train_indices, ]
+
+
+data_tensor <- torch_tensor(as.matrix(predictors), dtype = torch_float32())
+
+# Define the preprocessing method
+preProc_cleaned <- preProcess(train_data, method = c("center", "scale"))
+
+# Transform the data using the scaling method
+train_data <- predict(preProc_cleaned, train_data)
+test_data <- predict(preProc_cleaned, test_data)
+
+train_tensor <- torch_tensor(as.matrix(train_data), dtype = torch_float32())
+test_tensor <- torch_tensor(as.matrix(test_data), dtype = torch_float32())
+```
+
+### Model Architecture
+
+```{r}
+# Define the network architecture
+autoencoder <- nn_module(
+  initialize = function(layer_1, layer_2, layer_3, bottleneck) {
+    self$encoder <- nn_sequential(
+      nn_linear(21, layer_1),
+      nn_batch_norm1d(layer_1),
+      nn_relu(),
+      nn_linear(layer_1, layer_2),
+      nn_batch_norm1d(layer_2),
+      nn_relu(),
+      nn_linear(layer_2, layer_3),
+      nn_batch_norm1d(layer_3),
+      nn_relu(),
+      nn_linear(layer_3, bottleneck),
+      nn_batch_norm1d(bottleneck),
+      nn_relu()
+    )
+    self$decoder <- nn_sequential(
+      nn_linear(bottleneck, layer_3),
+      nn_batch_norm1d(layer_3),
+      nn_relu(),
+      nn_linear(layer_3, layer_2),
+      nn_batch_norm1d(layer_2),
+      nn_relu(),
+      nn_linear(layer_2, layer_1),
+      nn_batch_norm1d(layer_1),
+      nn_relu(),
+      nn_linear(layer_1, 21),
+      nn_relu(),
+      nn_sigmoid()
+    )
+  },
+  forward = function(x) {
+    encoded <- self$encoder(x)
+    decoded <- self$decoder(encoded)
+    decoded
+  }
+)
+```
+
+### Training
+
+```{r}
+# models - varying latent space size
+model_21 <- autoencoder(30, 40, 30, 21)
+model_10 <- autoencoder(30, 25, 15, 10)
+model_5 <- autoencoder(30, 20, 10, 5)
+```
+
+```{r}
+# Define training logic
+train <- function(model, train_tensor) {
+  # Loss function
+  loss_fn <- nn_mse_loss(reduction = "mean")
+
+  # Optimizer
+  optimizer <- optim_adam(model$parameters, lr = 0.001)
+
+  # Training loop
+  num_epochs <- 200
+  batch_size <- 256
+  # Calculate the number of batches
+  num_batches <- ceiling(nrow(train_tensor) / batch_size)
+
+  loss_list <- c(0)
+
+  for (epoch in 1:num_epochs) {
+
+    # Create batches
+    train_data_batches <- torch_chunk(train_tensor, chunks = num_batches)
+
+    for (batch in train_data_batches) {
+      # Forward pass
+      output <- model(batch)
+      loss <- loss_fn(output, batch)
+      
+      # Backward and optimize
+      optimizer$zero_grad()
+      loss$backward()
+      optimizer$step()
+      
+      append(loss_list, loss$item())
+    }
+    if (epoch %% 10 == 0) {
+      cat("Epoch:", epoch, "Loss:", loss$item(), "\n")
+    }
+  }
+  return(loss_list)
+}
+```
+
+```{r}
+loss_21 <- train(model_21, train_tensor)
+loss_10 <- train(model_10, train_tensor)
+loss_5 <- train(model_5, train_tensor)
+```
+
+```{r}
+# Disable gradient calculations for testing
+model_21$eval()
+model_10$eval()
+model_5$eval()
+
+# Forward pass on the test set
+test_output_21 <- model_21(test_tensor)
+test_output_10 <- model_10(test_tensor)
+test_output_5 <- model_5(test_tensor)
+
+loss_fn <- nn_mse_loss(reduction = "mean")
+
+# loss values
+test_loss_21 <- loss_fn(test_output_21, test_tensor)$item()
+test_loss_10 <- loss_fn(test_output_10, test_tensor)$item()
+test_loss_5 <- loss_fn(test_output_5, test_tensor)$item()
+
+cat("Model_21 test Loss (Reconstruction Error):", test_loss_21, "\n")
+cat("Model_10 test Loss (Reconstruction Error):", test_loss_10, "\n")
+cat("Model_5 test Loss (Reconstruction Error):", test_loss_5, "\n")
+```
+
+```{r}
+# Gather feature names
+feature_names <- names(predictors)
+
+# convert to matrix
+test_output_21 <- as.matrix(test_output_21$detach())
+test_output_10 <- as.matrix(test_output_10$detach())
+test_output_5 <- as.matrix(test_output_5$detach())
+
+# Assign feature names to data tensor
+colnames(test_output_21) <- feature_names
+colnames(test_output_10) <- feature_names
+colnames(test_output_5) <- feature_names
+
+# Convert tensors to matrices
+test_data_matrix <- as.matrix(test_tensor)
+colnames(test_data_matrix) <- feature_names
+standardised_output_21 <- predict(preProc_cleaned, test_output_21)
+standardised_output_10 <- predict(preProc_cleaned, test_output_10)
+standardised_output_5 <- predict(preProc_cleaned, test_output_5)
+reconstructed_test_data_matrix_21 <- as.matrix(standardised_output_21)
+reconstructed_test_data_matrix_10 <- as.matrix(standardised_output_10)
+reconstructed_test_data_matrix_5 <- as.matrix(standardised_output_5)
+correlation_21 <- cor(test_data_matrix, reconstructed_test_data_matrix_21)
+correlation_10 <- cor(test_data_matrix, reconstructed_test_data_matrix_10)
+correlation_5 <- cor(test_data_matrix, reconstructed_test_data_matrix_5)
+```
+
+```{r}
+# Melt the correlation matrix
+correlation_21_melted <- melt(correlation_21)
+correlation_10_melted <- melt(correlation_10)
+correlation_5_melted <- melt(correlation_5)
+
+ggplot(correlation_21_melted, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0) +
+  theme_minimal() +
+  labs(title = "Correlation Heatmap", x = "Variable 1", y = "Variable 2") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+ggplot(correlation_10_melted, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0) +
+  theme_minimal() +
+  labs(title = "Correlation Heatmap", x = "Variable 1", y = "Variable 2") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(correlation_5_melted, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0) +
+  theme_minimal() +
+  labs(title = "Correlation Heatmap", x = "Variable 1", y = "Variable 2") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### Visualisation of Latent Space - Pearson correlation & PCA
+
+```{r}
+# Extract encoded representations
+encoded_data_21 <- model_21$encoder(data_tensor)
+encoded_data_21 <- as.array(encoded_data_21$detach())
+encoded_data_10 <- model_10$encoder(data_tensor)
+encoded_data_10 <- as.array(encoded_data_10$detach())
+encoded_data_5 <- model_5$encoder(data_tensor)
+encoded_data_5 <- as.array(encoded_data_5$detach())
+
+labels <- cleaned$satisfaction
+
+# Visualization
+plot_df_21 <- data.frame(encoded_data_21)
+plot_df_10 <- data.frame(encoded_data_10)
+plot_df_5 <- data.frame(encoded_data_5)
+plot_df_21$satisfaction <- as.factor(labels)
+plot_df_10$satisfaction <- as.factor(labels)
+plot_df_5$satisfaction <- as.factor(labels)
+
+ggplot(plot_df_21, aes(x = X20, y = X21, color = satisfaction)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "2D Visualization of the Latent Space", x = "Dimension 1", y = "Dimension 2")
+
+ggplot(plot_df_10, aes(x = X9, y = X10, color = satisfaction)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "2D Visualization of the Latent Space", x = "Dimension 1", y = "Dimension 2")
+
+ggplot(plot_df_5, aes(x = X4, y = X5, color = satisfaction)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "2D Visualization of the Latent Space", x = "Dimension 1", y = "Dimension 2")
+```
+
+```{r}
+# Plot Pearson Correlation
+cor_matrix_original <- cor(predictors)
+ggcorrplot(cor_matrix_original, hc.order = TRUE)
+
+# Plot Pearson Correlation
+cor_matrix_21 <- cor(encoded_data_21)
+ggcorrplot(cor_matrix_21, hc.order = TRUE)
+
+# Plot Pearson Correlation
+cor_matrix_10 <- cor(encoded_data_10)
+ggcorrplot(cor_matrix_10, hc.order = TRUE)
+
+# Plot Pearson Correlation
+cor_matrix_5 <- cor(encoded_data_5)
+ggcorrplot(cor_matrix_5, hc.order = TRUE)
+
+# Run PCA on the encoded data
+pca_result_original <- prcomp(predictors, center = TRUE, scale. = TRUE)
+pca_data_original <- as.data.frame(pca_result_original$x[, 1:2])  # Taking first two principal components
+
+# Run PCA on the encoded data
+pca_result_21 <- prcomp(as.data.frame(encoded_data_21), center = TRUE, scale. = TRUE)
+pca_data_21 <- as.data.frame(pca_result_21$x[, 1:2])  # Taking first two principal components
+
+# Run PCA on the encoded data
+pca_result_10 <- prcomp(as.data.frame(encoded_data_10), center = TRUE, scale. = TRUE)
+pca_data_10 <- as.data.frame(pca_result_10$x[, 1:2])  # Taking first two principal components
+
+# Run PCA on the encoded data
+pca_result_5 <- prcomp(as.data.frame(encoded_data_5), center = TRUE, scale. = TRUE)
+pca_data_5 <- as.data.frame(pca_result_5$x[, 1:2])  # Taking first two principal components
+
+# Visualization
+ggplot(pca_data_original, aes(x = PC1, y = PC2)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "PCA of the Encoded (Latent) Space", x = "PC1", y = "PC2")
+
+# Visualization
+ggplot(pca_data_21, aes(x = PC1, y = PC2)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "PCA of the Encoded (Latent) Space", x = "PC1", y = "PC2")
+
+# Visualization
+ggplot(pca_data_10, aes(x = PC1, y = PC2)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "PCA of the Encoded (Latent) Space", x = "PC1", y = "PC2")
+
+# Visualization
+ggplot(pca_data_5, aes(x = PC1, y = PC2)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "PCA of the Encoded (Latent) Space", x = "PC1", y = "PC2")
+```
+
+```{r}
+# Visualization
+ggplot(predictors, aes(x = Gender, y = CustomerType)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Gender vs CustomerType - Original", x = "Gender", y = "CustomerType")
+
+# Visualization
+ggplot(as.data.frame(standardised_output_21), aes(x = Gender, y = CustomerType)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Gender vs CustomerType - 22-embedded", x = "Gender", y = "CustomerType")
+```
+
+### Proportion of Variance Explained
+
+```{r}
+# Proportion of variance explained by each principal component
+#variance_explained <- pca_result$sdev^2 / sum(pca_result$sdev^2)
+
+# Cumulative variance explained
+#cumulative_variance <- cumsum(variance_explained)
+```
+
+```{r}
+# Create a dataframe for plotting
+#variance_df <- data.frame(PC = seq_along(cumulative_variance), 
+#                          CumulativeVariance = cumulative_variance)
+
+# Plot
+#ggplot(variance_df, aes(x = PC, y = CumulativeVariance)) +
+#  geom_line() +
+#  geom_point() +
+#  scale_x_continuous(breaks = 1:length(cumulative_variance)) +
+#  theme_minimal() +
+#  labs(title = "Cumulative Variance Explained by PCA Components",
+#       x = "Principal Component",
+#       y = "Cumulative Variance Explained")
+```
+
+## UMAP Reduction to 10 dimensions
+
+### Reduction
+
+```{r}
+# Run UMAP
+umap_result <- umap(predictors, n_components = 10, n_neighbors = 43)
+
+# Create a 3D interactive plot using plotly
+plot_ly(x = umap_result$layout[,1], y = umap_result$layout[,2], z = umap_result$layout[,3],
+        type = 'scatter3d', 
+        mode = 'markers', 
+        marker = list(color = cleaned$satisfaction, colorscale = 'Viridis', size = 5)) %>%
+        layout(title = '3D UMAP Plot')
+```
+
+### Correlation Heatmap
+
+```{r}
+# Plot Pearson Correlation
+cor_matrix_umap <- cor(umap_result$layout)
+ggcorrplot(cor_matrix_umap, hc.order = TRUE)
+```
+
+# Classification - Ali
+
+## DNN
+
+### Architecture
+
+```{r}
+# Define model architecture
+dnn_model <- nn_module(
+  "Classifier",
+  initialize = function(dropout_rate = 0.3) {
+    self$dropout_rate <- dropout_rate
+    self$dropout <- nn_dropout(dropout_rate)
+    
+    self$fc1 <- nn_linear(21, 50)
+    self$bn1 <- nn_batch_norm1d(50)
+    self$fc2 <- nn_linear(50, 100)
+    self$bn2 <- nn_batch_norm1d(100)
+    self$fc3 <- nn_linear(100, 80)
+    self$bn3 <- nn_batch_norm1d(80)
+    self$fc4 <- nn_linear(80, 60)
+    self$bn4 <- nn_batch_norm1d(60)
+    self$fc5 <- nn_linear(60, 30)
+    self$bn5 <- nn_batch_norm1d(30)
+    self$fc6 <- nn_linear(30, 1)
+  },
+  forward = function(x) {
+    x %>% 
+      self$fc1() %>%
+      self$bn1() %>%
+      nnf_relu() %>%
+      self$fc2() %>%
+      self$bn2() %>%
+      nnf_relu() %>%
+      self$fc3() %>%
+      self$bn3() %>%
+      nnf_relu() %>%
+      self$fc4() %>%
+      self$bn4() %>%
+      nnf_relu() %>%
+      self$fc5() %>%
+      self$bn5() %>%
+      nnf_relu() %>%
+      self$dropout() %>%
+      self$fc6() %>%
+      nnf_sigmoid()
+  }
+)
+```
+
+### Training logic
+
+```{r}
+# Function to convert data frame to tensor
+df_to_tensor <- function(training, testing, target_col) {
+
+  train_target <- torch_tensor(as.matrix(training[[target_col]]), dtype = torch_float32())
+  test_target <- torch_tensor(as.matrix(testing[[target_col]]), dtype = torch_float32())
+  
+  train_features <- training %>% select(-all_of(target_col))
+  test_features <- testing %>% select(-all_of(target_col))
+  
+  # Define the preprocessing method
+  preProc_cleaned <- preProcess(train_features, method = c("center", "scale"))
+  
+  # Transform the data using the scaling method
+  X_train_normed <- predict(preProc_cleaned, train_features)
+  X_test_normed <- predict(preProc_cleaned, test_features)
+
+  # convert to tensor and return
+  X_train <- as.matrix(X_train_normed)
+  X_test <- as.matrix(X_test_normed)
+
+  X_train <- torch_tensor(X_train, dtype = torch_float32())
+  X_test <- torch_tensor(X_test, dtype = torch_float32())
+
+  list(x1 = X_train, y1 = train_target, x2 = X_test, y2 = test_target)
+}
+
+# Function to calculate accuracy
+calculate_accuracy <- function(y_true, y_pred) {
+  correct <- sum(torch_round(y_pred) == y_true)
+  total <- length(y_true)
+  accuracy <- as.numeric(correct) / total
+  accuracy
+}
+```
+
+```{r}
+# Define training logic
+train_dnn <- function(model, train_tensor, train_labels) {
+
+  # loss function
+  loss_fn <- nn_bce_loss()
+
+  # optimiser
+  optimizer <- optim_adam(model$parameters, lr = 0.001)
+
+
+  # Training loop
+  num_epochs <- 20
+  batch_size <- 128
+  loss_list <- numeric(num_epochs)
+  num_batches <- ceiling(length(train_indices) / batch_size)
+  
+  for (epoch in 1:num_epochs) {
+    model$train()
+
+    # for tracking accuracy
+    total_correct <- 0
+    total_samples <- 0
+
+    # Create batches using torch_chunk
+    X_batches <- torch_chunk(train_tensor, chunks = num_batches)
+    y_batches <- torch_chunk(train_labels, chunks = num_batches)
+  
+    for (b in 1:length(X_batches)) {
+      
+      X_batch <- X_batches[[b]]
+      y_batch <- y_batches[[b]]
+
+      # Forward pass
+      output <- model(X_batch)
+      loss <- loss_fn(output, y_batch)
+      
+      # Backward and optimize
+      optimizer$zero_grad()
+      loss$backward()
+      optimizer$step()
+    }
+
+    loss_list[epoch] <- loss$item()
+
+    # track loss and accuracy
+    total_correct <- total_correct + sum(torch_round(output) == y_batch)
+    total_samples <- total_samples + nrow(y_batch)
+    if (epoch %% 1 == 0) {
+      accuracy <- as.numeric(total_correct) * 100 / total_samples
+      accuracy <- as.character(accuracy)
+      print(paste("Epoch:", as.character(epoch), "Loss:", as.character(loss$item()), " Accuracy: ", accuracy, "\n"))
+    }
+  }
+  return(loss_list)
+}
+```
+
+### Original Dataset
+
+#### Data Prep
+
+```{r}
+train_indices <- createDataPartition(cleaned$satisfaction, p = 0.8, list = FALSE, times = 1)
+
+# stratified train-test split
+X_train <- predictors[train_indices, ]
+y_train <- cleaned[train_indices, ]$satisfaction
+
+X_test <- predictors[-train_indices, ]
+y_test <- cleaned[-train_indices, ]$satisfaction
+
+# for running on the whole dataset
+predictor_tensor <- torch_tensor(as.matrix(predictors), dtype = torch_float32())
+label_tensor <- torch_tensor(as.matrix(cleaned$satisfaction), dtype = torch_float32())
+
+# Define the preprocessing method
+preProc_cleaned <- preProcess(X_train, method = c("center", "scale"))
+
+# Transform the data using the scaling method
+X_train_normed <- predict(preProc_cleaned, X_train)
+X_test_normed <- predict(preProc_cleaned, X_test)
+
+# convert only test data to tensor, train converts later
+X_test_tensor <- torch_tensor(as.matrix(X_test), dtype = torch_float32())
+y_test_tensor <- torch_tensor(as.matrix(y_test), dtype = torch_float32())
+```
+
+#### Training
+
+```{r}
+target_col <- 'satisfaction'
+k <- 5
+features <- X_train_normed
+features$satisfaction <- y_train
+val_folds <- createFolds(features$satisfaction, k = 5, list = TRUE, returnTrain = TRUE)
+loss_curve <- 0
+net <- dnn_model()
+
+for (i in 1:k) {
+    cat("Fold: ", i, "\n")
+
+    # Splitting the data
+    train_indices <- val_folds[[i]]
+    test_indices <- setdiff(1:nrow(features), train_indices)
+
+    data <- df_to_tensor(features[train_indices, ], features[test_indices, ], "satisfaction")
+    train_data <- list(x = data$x1, y =  data$y1)
+    val_data <- list(x = data$x2, y =data$y2)
+
+    # Initialize the model
+    net <- dnn_model()
+
+    # Train the model
+    loss_curve <- train_dnn(net, train_data$x, train_data$y)
+
+    # Evaluate the model on validation set
+    net$eval()
+    predicted_test <- net(val_data$x)
+    test_loss <- loss_fn(predicted_test, val_data$y)
+
+    # track loss and accuracy
+    total_correct <- sum(torch_round(predicted_test) == val_data$y)
+    total_samples <- nrow(val_data$x)
+    accuracy <- as.numeric(total_correct) * 100 / total_samples
+
+    print(paste("Test loss in fold ", i, ": ", as.character(test_loss$item()), ", Test Accuracy:", as.character(accuracy), "\n"))
+}
+```
+
+#### Loss Curve
+
+```{r}
+  # Plot the loss curve
+  plot(loss_curve, type = "l", xlab = "Epoch", ylab = "Loss",
+       main = paste("Training Loss Curve - Fold", i))
+```
+
+#### Test
+
+```{r}
+net$eval()
+predicted_test <- net(X_test_tensor)
+test_loss <- loss_fn(predicted_test, y_test_tensor)$item()
+
+# track loss and accuracy
+total_correct <- sum(torch_round(predicted_test) == y_test_tensor)
+total_samples <- nrow(X_test_tensor)
+accuracy <- as.numeric(total_correct) * 100 / total_samples
+
+cat("Test loss ", test_loss, ", Test Accuracy:", accuracy, "\n")
+```
+
+#### Metrics - F1 & ROC
+
+```{r}
+predicted_test <- predicted_test$detach()
+
+# Convert tensors to binary vectors if necessary
+test_predictions <- as.numeric(torch_round(predicted_test))
+true_labels <- as.numeric(y_test_tensor$detach())
+
+# Calculate True Positives (TP), False Positives (FP), and False Negatives (FN)
+TP <- sum((test_predictions == 1) & (true_labels == 1))
+FP <- sum((test_predictions == 1) & (true_labels == 0))
+FN <- sum((test_predictions == 0) & (true_labels == 1))
+
+# Precision and Recall
+precision <- TP / (TP + FP)
+recall <- TP / (TP + FN)
+
+# F1 Score
+f1_score <- 2 * (precision * recall) / (precision + recall)
+
+
+# ROC Curve
+roc_curve <- roc(as.numeric(y_test_tensor), as.numeric(predicted_test))
+auc_score <- auc(roc_curve)
+
+cat("F1 Score on Test Set: ", f1_score, "\n")
+cat("AUC Score on Test Set: ", auc_score, "\n")
+
+# Plot ROC Curve
+plot(roc_curve, main = "ROC Curve - Test Set")
+abline(a = 0, b = 1, col = "red", lty = 2)
+```
+
+### 10D AE Embedded Data
+
+#### Architecture
+
+```{r}
+# Define model architecture
+dnn_model2 <- nn_module(
+  "Classifier",
+  initialize = function(dropout_rate = 0.3) {
+    self$dropout_rate <- dropout_rate
+    self$dropout <- nn_dropout(dropout_rate)
+    
+    self$fc1 <- nn_linear(10, 30)
+    self$bn1 <- nn_batch_norm1d(30)
+    self$fc3 <- nn_linear(30, 40)
+    self$bn3 <- nn_batch_norm1d(40)
+    self$fc4 <- nn_linear(40, 25)
+    self$bn4 <- nn_batch_norm1d(25)
+    self$fc5 <- nn_linear(25, 15)
+    self$bn5 <- nn_batch_norm1d(15)
+    self$fc6 <- nn_linear(15, 1)
+  },
+  forward = function(x) {
+    x %>% 
+      self$fc1() %>%
+      self$bn1() %>%
+      nnf_relu() %>%
+      self$fc3() %>%
+      self$bn3() %>%
+      nnf_relu() %>%
+      self$fc4() %>%
+      self$bn4() %>%
+      nnf_relu() %>%
+      self$fc5() %>%
+      self$bn5() %>%
+      nnf_relu() %>%
+      self$dropout() %>%
+      self$fc6() %>%
+      nnf_sigmoid()
+  }
+)
+```
+
+#### Data Prep
+
+```{r}
+encoded_data_10 <- as.data.frame(encoded_data_10)
+encoded_data_10$satisfaction <- cleaned$satisfaction
+train_indices <- createDataPartition(encoded_data_10$satisfaction, p = 0.8, list = FALSE, times = 1)
+
+encoded_predictors <- encoded_data_10 %>% select(-satisfaction)
+
+# stratified train-test split
+X_train <- encoded_predictors[train_indices, ]
+y_train <- encoded_data_10[train_indices, ]$satisfaction
+
+X_test <- encoded_predictors[-train_indices, ]
+y_test <- encoded_data_10[-train_indices, ]$satisfaction
+
+# for running on the whole dataset
+predictor_tensor <- torch_tensor(as.matrix(encoded_predictors), dtype = torch_float32())
+label_tensor <- torch_tensor(as.matrix(encoded_data_10$satisfaction), dtype = torch_float32())
+
+# Define the preprocessing method
+preProc_cleaned <- preProcess(X_train, method = c("center", "scale"))
+
+# Transform the data using the scaling method
+X_train_normed <- predict(preProc_cleaned, X_train)
+X_test_normed <- predict(preProc_cleaned, X_test)
+
+# convert only test data to tensor, train converts later
+X_test_tensor <- torch_tensor(as.matrix(X_test), dtype = torch_float32())
+y_test_tensor <- torch_tensor(as.matrix(y_test), dtype = torch_float32())
+```
+
+#### Training
+
+```{r}
+target_col <- 'satisfaction'
+k <- 5
+features <- X_train_normed
+features$satisfaction <- y_train
+val_folds <- createFolds(features$satisfaction, k = 5, list = TRUE, returnTrain = TRUE)
+loss_curve <- 0
+net2 <- dnn_model2()
+
+for (i in 1:k) {
+    cat("Fold: ", i, "\n")
+
+    # Splitting the data
+    train_indices <- val_folds[[i]]
+    test_indices <- setdiff(1:nrow(features), train_indices)
+
+    data <- df_to_tensor(features[train_indices, ], features[test_indices, ], "satisfaction")
+    train_data <- list(x = data$x1, y =  data$y1)
+    val_data <- list(x = data$x2, y =data$y2)
+
+    # Initialize the model
+    net2 <- dnn_model2()
+
+    # Train the model
+    loss_curve <- train_dnn(net2, train_data$x, train_data$y)
+
+    # Evaluate the model on validation set
+    net$eval()
+    predicted_test <- net2(val_data$x)
+    test_loss <- loss_fn(predicted_test, val_data$y)
+
+    # track loss and accuracy
+    total_correct <- sum(torch_round(predicted_test) == val_data$y)
+    total_samples <- nrow(val_data$x)
+    accuracy <- as.numeric(total_correct) * 100 / total_samples
+
+    print(paste("Test loss in fold ", i, ": ", as.character(test_loss$item()), ", Test Accuracy:", as.character(accuracy), "\n"))
+}
+```
+
+#### Loss Curve
+
+```{r}
+  # Plot the loss curve
+  plot(loss_curve, type = "l", xlab = "Epoch", ylab = "Loss",
+       main = paste("Training Loss Curve - Fold", i))
+```
+
+#### Test
+
+```{r}
+net2$eval()
+predicted_test <- net2(X_test_tensor)
+test_loss <- loss_fn(predicted_test, y_test_tensor)$item()
+
+# track loss and accuracy
+total_correct <- sum(torch_round(predicted_test) == y_test_tensor)
+total_samples <- nrow(X_test_tensor)
+accuracy <- as.numeric(total_correct) * 100 / total_samples
+
+cat("Test loss ", test_loss, ", Test Accuracy:", accuracy, "\n")
+```
+
+#### Metrics - F1 & ROC
+
+```{r}
+predicted_test <- predicted_test$detach()
+
+# Convert tensors to binary vectors if necessary
+test_predictions <- as.numeric(torch_round(predicted_test))
+true_labels <- as.numeric(y_test_tensor$detach())
+
+# Calculate True Positives (TP), False Positives (FP), and False Negatives (FN)
+TP <- sum((test_predictions == 1) & (true_labels == 1))
+FP <- sum((test_predictions == 1) & (true_labels == 0))
+FN <- sum((test_predictions == 0) & (true_labels == 1))
+
+# Precision and Recall
+precision <- TP / (TP + FP)
+recall <- TP / (TP + FN)
+
+# F1 Score
+f1_score <- 2 * (precision * recall) / (precision + recall)
+
+
+# ROC Curve
+roc_curve <- roc(as.numeric(y_test_tensor), as.numeric(predicted_test))
+auc_score <- auc(roc_curve)
+
+cat("F1 Score on Test Set: ", f1_score, "\n")
+cat("AUC Score on Test Set: ", auc_score, "\n")
+
+# Plot ROC Curve
+plot(roc_curve, main = "ROC Curve - Test Set")
+abline(a = 0, b = 1, col = "red", lty = 2)
+```
+
+### 10D UMAP Embedded Data
+
+#### Architecture
+
+```{r}
+# Define model architecture
+dnn_model3 <- nn_module(
+  "Classifier",
+  initialize = function(dropout_rate = 0.3) {
+    self$dropout_rate <- dropout_rate
+    self$dropout <- nn_dropout(dropout_rate)
+    
+    self$fc1 <- nn_linear(10, 30)
+    self$bn1 <- nn_batch_norm1d(30)
+    self$fc3 <- nn_linear(30, 25)
+    self$bn4 <- nn_batch_norm1d(25)
+    self$fc5 <- nn_linear(25, 15)
+    self$bn5 <- nn_batch_norm1d(15)
+    self$fc6 <- nn_linear(15, 1)
+  },
+  forward = function(x) {
+    x %>% 
+      self$fc1() %>%
+      self$bn1() %>%
+      nnf_relu() %>%
+      self$fc3() %>%
+      self$bn4() %>%
+      nnf_relu() %>%
+      self$fc5() %>%
+      self$bn5() %>%
+      nnf_relu() %>%
+      self$dropout() %>%
+      self$fc6() %>%
+      nnf_sigmoid()
+  }
+)
+```
+
+#### Data Prep
+
+```{r}
+umap_encoded <- as.data.frame(umap_result$layout)
+umap_encoded$satisfaction <- cleaned$satisfaction
+train_indices <- createDataPartition(umap_encoded$satisfaction, p = 0.8, list = FALSE, times = 1)
+
+encoded_predictors <- umap_encoded %>% select(-satisfaction)
+
+# stratified train-test split
+X_train <- encoded_predictors[train_indices, ]
+y_train <- umap_encoded[train_indices, ]$satisfaction
+
+X_test <- encoded_predictors[-train_indices, ]
+y_test <- umap_encoded[-train_indices, ]$satisfaction
+
+# for running on the whole dataset
+predictor_tensor <- torch_tensor(as.matrix(encoded_predictors), dtype = torch_float32())
+label_tensor <- torch_tensor(as.matrix(umap_encoded$satisfaction), dtype = torch_float32())
+
+# Define the preprocessing method
+preProc_cleaned <- preProcess(X_train, method = c("center", "scale"))
+
+# Transform the data using the scaling method
+X_train_normed <- predict(preProc_cleaned, X_train)
+X_test_normed <- predict(preProc_cleaned, X_test)
+
+# convert only test data to tensor, train converts later
+X_test_tensor <- torch_tensor(as.matrix(X_test), dtype = torch_float32())
+y_test_tensor <- torch_tensor(as.matrix(y_test), dtype = torch_float32())
+```
+
+#### Training
+
+```{r}
+target_col <- 'satisfaction'
+k <- 5
+features <- X_train_normed
+features$satisfaction <- y_train
+val_folds <- createFolds(features$satisfaction, k = 5, list = TRUE, returnTrain = TRUE)
+loss_curve <- 0
+net3 <- dnn_model3()
+
+for (i in 1:k) {
+    cat("Fold: ", i, "\n")
+
+    # Splitting the data
+    train_indices <- val_folds[[i]]
+    test_indices <- setdiff(1:nrow(features), train_indices)
+
+    data <- df_to_tensor(features[train_indices, ], features[test_indices, ], "satisfaction")
+    train_data <- list(x = data$x1, y =  data$y1)
+    val_data <- list(x = data$x2, y =data$y2)
+
+    # Initialize the model
+    net3 <- dnn_model3()
+
+    # Train the model
+    loss_curve <- train_dnn(net3, train_data$x, train_data$y)
+
+    # Evaluate the model on validation set
+    net$eval()
+    predicted_test <- net3(val_data$x)
+    test_loss <- loss_fn(predicted_test, val_data$y)
+
+    # track loss and accuracy
+    total_correct <- sum(torch_round(predicted_test) == val_data$y)
+    total_samples <- nrow(val_data$x)
+    accuracy <- as.numeric(total_correct) * 100 / total_samples
+
+    print(paste("Test loss in fold ", i, ": ", as.character(test_loss$item()), ", Test Accuracy:", as.character(accuracy), "\n"))
+}
+```
+
+#### Loss Curve
+
+```{r}
+# Plot the loss curve
+plot(loss_curve, type = "l", xlab = "Epoch", ylab = "Loss",
+    main = paste("Training Loss Curve - Fold", i))
+```
+
+#### Test
+
+```{r}
+net3$eval()
+predicted_test <- net3(X_test_tensor)
+test_loss <- loss_fn(predicted_test, y_test_tensor)$item()
+
+# track loss and accuracy
+total_correct <- sum(torch_round(predicted_test) == y_test_tensor)
+total_samples <- nrow(X_test_tensor)
+accuracy <- as.numeric(total_correct) * 100 / total_samples
+
+cat("Test loss ", test_loss, ", Test Accuracy:", accuracy, "\n")
+```
+
+#### Metrics - F1 & ROC
+
+```{r}
+predicted_test <- predicted_test$detach()
+
+# Convert tensors to binary vectors if necessary
+test_predictions <- as.numeric(torch_round(predicted_test))
+true_labels <- as.numeric(y_test_tensor$detach())
+
+# Calculate True Positives (TP), False Positives (FP), and False Negatives (FN)
+TP <- sum((test_predictions == 1) & (true_labels == 1))
+FP <- sum((test_predictions == 1) & (true_labels == 0))
+FN <- sum((test_predictions == 0) & (true_labels == 1))
+
+# Precision and Recall
+precision <- TP / (TP + FP)
+recall <- TP / (TP + FN)
+
+# F1 Score
+f1_score <- 2 * (precision * recall) / (precision + recall)
+
+
+# ROC Curve
+roc_curve <- roc(as.numeric(y_test_tensor), as.numeric(predicted_test))
+auc_score <- auc(roc_curve)
+
+cat("F1 Score on Test Set: ", f1_score, "\n")
+cat("AUC Score on Test Set: ", auc_score, "\n")
+
+# Plot ROC Curve
+plot(roc_curve, main = "ROC Curve - Test Set")
+abline(a = 0, b = 1, col = "red", lty = 2)
+```
+
+## SVM
+
+### Data Prep
+
+```{r}
+train_indices <- createDataPartition(cleaned$satisfaction, p = 0.8, list = FALSE, times = 1)
+
+# stratified train-test split
+X_train <- predictors[train_indices, ]
+y_train <- cleaned[train_indices, ]$satisfaction
+
+X_test <- predictors[-train_indices, ]
+y_test <- cleaned[-train_indices, ]$satisfaction
+
+# for running on the whole dataset
+predictor <- predictors
+label <- cleaned$satisfaction
+
+# Define the preprocessing method
+preProc_cleaned <- preProcess(X_train, method = c("center", "scale"))
+
+# Transform the data using the scaling method
+X_train_normed <- predict(preProc_cleaned, X_train)
+X_test_normed <- predict(preProc_cleaned, X_test)
+
+X_test <- X_test_normed
+```
+
+```{r}
+# Function to standardise data
+z_scale <- function(training, testing, target_col) {
+
+  train_target <- training[[target_col]]
+  test_target <- testing[[target_col]]
+  
+  train_features <- training %>% select(-all_of(target_col))
+  test_features <- testing %>% select(-all_of(target_col))
+  
+  # Define the preprocessing method
+  preProc_cleaned <- preProcess(train_features, method = c("center", "scale"))
+  
+  # Transform the data using the scaling method
+  X_train_normed <- predict(preProc_cleaned, train_features)
+  X_test_normed <- predict(preProc_cleaned, test_features)
+
+  X_train <- X_train_normed
+  X_test <- X_test_normed
+
+  list(x1 = X_train, y1 = train_target, x2 = X_test, y2 = test_target)
+}
+```
+
+### Training Logic
+
+```{r}
+target_col <- 'satisfaction'
+k <- 5
+features <- X_train_normed
+features$satisfaction <- y_train
+val_folds <- createFolds(features$satisfaction, k = 5, list = TRUE, returnTrain = TRUE)
+loss_curve <- 0
+
+for (i in 1:k) {
+    cat("Fold: ", i, "\n")
+
+    # Splitting the data
+    train_indices <- val_folds[[i]]
+    test_indices <- setdiff(1:nrow(features), train_indices)
+
+    data <- z_scale(features[train_indices, ], features[test_indices, ], "satisfaction")
+    train_data <- list(x = data$x1, y =  data$y1)
+    val_data <- list(x = data$x2, y =data$y2)
+
+    # Train the model
+    svm_model <- svm(train_data$x, train_data$y, type = 'C-classification', kernel = "radial")
+
+    # Evaluate the model on validation set
+    predicted_test <- predict(svm_model, val_data$x)
+    conf_matrix <- table(Predicted = predicted_test, Actual = val_data$y)
+
+    # track accuracy
+    accuracy <- 100* sum(diag(conf_matrix)) / sum(conf_matrix)
+
+    print(paste("Test accuracy in fold ", i, ": ", as.character(accuracy), "\n"))
+}
+```
+
+### Test
+
+```{r}
+# SVM Model
+
+# Predict on test data
+predicted_test <- predict(svm_model, X_test)
+
+# Evaluate the model
+conf_matrix <- table(Predicted = predicted_test, Actual = y_test)
+print(conf_matrix)
+
+# Calculate accuracy
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+print(paste("Accuracy:", accuracy))
+```
+
+#### Metrics - F1 & ROC
+
+```{r}
+# Convert tensors to binary vectors if necessary
+test_predictions <- as.numeric(torch_round(predicted_test))
+true_labels <- as.numeric(y_test)
+
+# Calculate True Positives (TP), False Positives (FP), and False Negatives (FN)
+TP <- sum((test_predictions == 1) & (true_labels == 1))
+FP <- sum((test_predictions == 1) & (true_labels == 0))
+FN <- sum((test_predictions == 0) & (true_labels == 1))
+
+# Precision and Recall
+precision <- TP / (TP + FP)
+recall <- TP / (TP + FN)
+
+# F1 Score
+f1_score <- 2 * (precision * recall) / (precision + recall)
+
+
+# ROC Curve
+roc_curve <- roc(as.numeric(y_test), as.numeric(predicted_test))
+auc_score <- auc(roc_curve)
+
+cat("F1 Score on Test Set: ", f1_score, "\n")
+cat("AUC Score on Test Set: ", auc_score, "\n")
+
+# Plot ROC Curve
+plot(roc_curve, main = "ROC Curve - Test Set")
+abline(a = 0, b = 1, col = "red", lty = 2)
+```
+
+# Classification - Paula
+## KNN
+```{r}
+# ************************************************
+# PAULA KNN HYPERPARAMETER TUNNING AND TRAINING
+# ************************************************
+
+# Load required libraries if not already installed
+# install.packages("pROC")
+# install.packages("caret")
+
+library(pROC)
+library(caret)
+
+# Read your dataset (replace 'cleaned' with your actual dataset)
+data <- cleaned
+
+# Create training and testing sets
+set.seed(444)
+training_index <- createDataPartition(data$satisfaction, 
+                                      p = 0.7,
+                                      list = FALSE)
+
+training_set <- data[training_index, ]
+testing_set <- data[-training_index, ]
+
+# Ensure factor levels are valid R variable names
+training_set$satisfaction <- factor(training_set$satisfaction, levels = c("0", "1"))
+
+# Train the k-Nearest Neighbors model with knn3
+knn_model <- knn3(satisfaction ~ ., 
+                  data = training_set,
+                  k = 15)  # Choose an appropriate value for k
+
+# Print the structure of the predicted probabilities
+predicted_probs <- predict(knn_model, newdata = training_set, type = "prob")
+positive_class_col <- colnames(predicted_probs)[which.max(predicted_probs[1, ])]
+
+# Add predicted probabilities to the training set
+training_set <- training_set %>%
+  mutate(Predicted_prob = predicted_probs[, positive_class_col])
+
+# Plot the distribution of predicted probabilities
+training_set %>%
+  ggplot() +
+  aes(x = Predicted_prob, fill = satisfaction) +
+  geom_histogram(bins = 20) +
+  labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities")
+
+# Create ROC curve for the testing set
+pROC_test <- roc(testing_set$satisfaction, as.numeric(predict(knn_model, newdata = testing_set, type = "prob")[, "1"]), plot=TRUE)
+
+# Print AUC value
+print(paste("AUC:", auc(pROC_test)))
+
+# Make predictions on the testing set
+knn_predictions <- predict(knn_model, newdata = testing_set, type = "prob")
+
+# Extract the probability for the positive class
+probability_yes <- knn_predictions[, "1"]
+
+# Create a factor variable for the predicted class
+knn_predictions <- data.frame(
+  probability = probability_yes,
+  class = ifelse(probability_yes > 0.5, "1", "0")
+)
+
+# Convert the class variable to a factor with levels "0" and "1"
+knn_predictions$class <- factor(knn_predictions$class, levels = c("0", "1"))
+
+# Display the table of predictions
+table(knn_predictions$class)
+
+# Convert testing_set$satisfaction to characters
+testing_set$satisfaction <- as.character(testing_set$satisfaction)
+
+# Make levels match
+testing_set$satisfaction <- factor(testing_set$satisfaction, levels = c("0", "1"))
+knn_predictions$class <- factor(knn_predictions$class, levels = levels(testing_set$satisfaction))
+
+# Create confusion matrix for the testing set
+knn_cm <- confusionMatrix(knn_predictions$class, testing_set$satisfaction, mode = "everything")
+print(knn_cm)
+
+# Access accuracy from the confusion matrix
+accuracy <- knn_cm$overall["Accuracy"]
+print(paste("Accuracy:", accuracy))
+
+# Calculate F1 score
+f1_score <- posPredValue(factor(knn_predictions$class), factor(testing_set$satisfaction), positive = "1")
+print(paste("F1 Score:", f1_score))
+
+auc_score <- auc(pROC_test)
+print(paste("AUC Score:", auc_score))
+
+# Access sensitivity and specificity from the confusion matrix
+sensitivity <- knn_cm$byClass["Sensitivity"]
+specificity <- knn_cm$byClass["Specificity"]
+
+# Print sensitivity and specificity
+print(paste("Sensitivity:", sensitivity))
+print(paste("Specificity:", specificity))
+
+```
+
+## Random Forest
+
+```{r}
+# ************************************************
+# PAULA RANDOM FOREST HYPERPARAMETER TUNNING AND TRAINING
+# ************************************************
+# Load required libraries if not already installed
+# install.packages("pROC")
+# install.packages("caret")
+# install.packages("randomForest")
+
+library(pROC)
+library(caret)
+library(randomForest)
+
+# Read your dataset (replace 'cleaned' with your actual dataset)
+data <- cleaned
+
+# Create training and testing sets
+set.seed(444)
+training_index <- createDataPartition(data$satisfaction, 
+                                      p = 0.7,
+                                      list = FALSE)
+
+training_set <- data[training_index, ]
+testing_set <- data[-training_index, ]
+
+# Ensure factor levels are valid R variable names
+training_set$satisfaction <- factor(training_set$satisfaction, levels = c("0", "1"))
+
+# Train the Random Forest model
+rf_model <- randomForest(satisfaction ~ ., 
+                         data = training_set,
+                         ntree = 100,  # Number of trees in the forest
+                         mtry = 3)     # Number of variables randomly sampled as candidates at each split
+
+
+# Print the structure of the predicted probabilities
+predicted_probs <- predict(rf_model, newdata = testing_set, type = "prob")
+positive_class_col <- colnames(predicted_probs)[which.max(predicted_probs[1, ])]
+
+# Add predicted probabilities to the testing set
+testing_set <- testing_set %>%
+  mutate(Predicted_prob = predicted_probs[, positive_class_col])
+
+# Create ROC curve for the testing set
+pROC_test <- roc(ifelse(testing_set$satisfaction == "1", 1, 0), testing_set$Predicted_prob, plot = TRUE)
+
+# Print AUC value
+print(paste("AUC:", auc(pROC_test)))
+
+# Make predictions on the testing set with probabilities
+rf_predictions_prob <- predict(rf_model, newdata = testing_set, type = "prob")[, "1"]
+
+# Create a factor variable for the predicted class
+rf_predictions <- data.frame(
+  probability = as.numeric(rf_predictions_prob),
+  class = ifelse(as.numeric(rf_predictions_prob) > 0.5, "1", "0")
+)
+
+# Convert the class variable to a factor with levels "0" and "1"
+rf_predictions$class <- factor(rf_predictions$class, levels = c("0", "1"))
+
+# Ensure that testing_set$satisfaction has the same levels as rf_predictions$class
+testing_set$satisfaction <- factor(testing_set$satisfaction, levels = levels(rf_predictions$class))
+
+# Create confusion matrix for the testing set
+rf_cm <- confusionMatrix(rf_predictions$class, testing_set$satisfaction, mode = "everything")
+print(rf_cm)
+
+# Access accuracy from the confusion matrix
+accuracy <- rf_cm$overall["Accuracy"]
+print(paste("Accuracy:", accuracy))
+
+# Calculate F1 score
+f1_score <- posPredValue(factor(rf_predictions$class), factor(testing_set$satisfaction), positive = "1")
+print(paste("F1 Score:", f1_score))
+
+# Calculate AUC score
+auc_score <- auc(pROC_test)
+print(paste("AUC Score:", auc_score))
+
+# Access sensitivity and specificity from the confusion matrix
+sensitivity <- rf_cm$byClass["Sensitivity"]
+specificity <- rf_cm$byClass["Specificity"]
+
+# Print sensitivity and specificity
+print(paste("Sensitivity:", sensitivity))
+print(paste("Specificity:", specificity))
+```
+
+# Classification - Adam
+
+```{r}
+# ************************************************
+# logistic_regression_regularization() :
+#
+# Apply logistic regression with regularization
+# 
+#
+# INPUT:   
+#          data frame - train_data - training data
+#          data frame - test_data - testing data
+#          float - logistic_threshold - probability threshold
+#
+# OUTPUT : None
+# ************************************************
+
+logistic_regression_regularization <- function(train_data, test_data, logistic_threshold = 0.5) {
+
+  # Sequence of lambda values to be tested (100 values)
+  lambda_sequence <- seq(from = 0.01, to = 0.0001, length.out = 100)
+
+  # Perform cross-validation to find the optimal lambda
+  cv_model <- cv.glmnet(as.matrix(train_data[-which(names(train_data) == "satisfaction")]), 
+                        train_data$satisfaction, 
+                        family = "binomial",
+                        alpha=1,
+                        lambda = lambda_sequence)
+
+  # Save the best lambda
+  best_lambda <- cv_model$lambda.min
+  print(paste("Optimal lambda:", best_lambda))
+
+  # Fit a logistic model using the best lambda
+  best_logistic_model <- glmnet(as.matrix(train_data[-which(names(train_data) == "satisfaction")]), 
+                                train_data$satisfaction, 
+                                family = "binomial", 
+                                lambda = best_lambda)
+
+  # Predict on test data
+  predictions <- predict(best_logistic_model, 
+                         newx = as.matrix(test_data[-which(names(test_data) == "satisfaction")]), 
+                         type = "response")
+
+  # Convert predictions (probabilities) to binary outcome based on the set threshold
+  predicted_classes <- ifelse(predictions > logistic_threshold, 1, 0)
+
+  # Create a confusion matrix
+  confusion_matrix <- table(test_data$satisfaction, predicted_classes)
+  print(confusion_matrix)
+  
+  # Calculate Precision, Recall, and F1 Score
+  precision <- confusion_matrix[2, 2] / sum(confusion_matrix[, 2])
+  recall <- confusion_matrix[2, 2] / sum(confusion_matrix[2, ])
+  f1_score <- 2 * precision * recall / (precision + recall)
+  print(paste("Precision:", precision))
+  print(paste("Recall:", recall))
+  print(paste("F1 Score on Test Set:", f1_score))
+
+  # Calculate AUC
+  roc_curve <- roc(test_data$satisfaction, predictions)
+  auc_value <- auc(roc_curve)
+  print(paste("AUC Score on Test Set:", auc_value))
+
+  # Extract the FPR and TPR from the ROC curve for plotting
+  roc_data <- coords(roc_curve, "local maximas", ret = c("fpr", "tpr"), transpose = FALSE)
+  roc_df <- data.frame(FPR = roc_data$fpr, TPR = roc_data$tpr)
+
+  # Plot the ROC curve
+  print(ggplot(roc_df, aes(x = FPR, y = TPR)) +
+    geom_line() + 
+    geom_abline(linetype = "dashed") +
+    xlim(c(0, 1)) + ylim(c(0, 1)) +
+    labs(title = "ROC Curve", x = "False Positive Rate", y = "True Positive Rate") +
+    theme_minimal() +
+    coord_fixed(ratio = 1))
+
+  # Calculate accuracy
+  accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+  print(paste("Accuracy:", accuracy))
+}
+
+# Cleaned dataset
+# Create train test split indices
+train_indices <- createDataPartition(cleaned$satisfaction, p = 0.8, list = FALSE, times = 1)
+
+# Create train and test datasets
+train_data <- cleaned[train_indices, ]
+test_data <- cleaned[-train_indices, ]
+
+# Apply logistic regression on train and test datasets
+logistic_regression_regularization(train_data, test_data)
+
+
+# Autoencoder dataset
+# Transform encoded data from matrix into a dataframe
+encoded_data_10_df <- as.data.frame(encoded_data_10)
+
+# Add in the satisfaction column
+encoded_data_10_df$satisfaction = cleaned$satisfaction
+
+# Create train test split indices
+train_indices <- createDataPartition(encoded_data_10_df$satisfaction, p = 0.8, list = FALSE, times = 1)
+
+# Create train and test datasets
+train_data_encoded <- encoded_data_10_df[train_indices, ]
+test_data_encoded <- encoded_data_10_df[-train_indices, ]
+
+# Apply logistic regression on train and test datasets
+logistic_regression_regularization(train_data_encoded, test_data_encoded)
+
+
+#UMAP Dataset
+# Transform umap data into a dataframe
+umap_results_df <- as.data.frame(umap_result$layout)
+
+# Add in the satisfaction column
+umap_results_df$satisfaction = cleaned$satisfaction
+
+# Create train test split indices
+train_indices <- createDataPartition(umap_results_df$satisfaction, p = 0.8, list = FALSE, times = 1)
+
+#Create train and test datasets
+train_data_umap <- umap_results_df[train_indices, ]
+test_data_umap <- umap_results_df[-train_indices, ]
+
+# Apply logistic regression on train and test datasets
+logistic_regression_regularization(train_data_umap, test_data_umap)
+
+
+# ************************************************
+# random_forest_model() :
+#
+# Apply random forest model
+# 
+#
+# INPUT:   
+#          data frame - train_data - training data
+#          data frame - test_data - testing data
+#          int - number_of_trees - number of trees
+#
+# OUTPUT : None
+# ************************************************
+random_forest_model <-function(train_data, test_data, number_of_trees) {
+  # Fit the RandomForest model
+  rf_model <- randomForest(satisfaction ~ ., data = train_data, ntree = number_of_trees)
+
+  # Importance of each predictor
+  importance(rf_model)
+
+  # Predict on the test dataset
+  predictions <- predict(rf_model, newdata = test_data)
+
+  # Create a confusion matrix
+  conf_matrix <- confusionMatrix(predictions, test_data$satisfaction)
+
+  # F1 Score
+  f1_score <- conf_matrix$byClass['F1']
+  print(paste("F1 Score on Test Set:", f1_score))
+
+  # Predict probabilities for AUC calculation
+  prob_predictions <- predict(rf_model, newdata = test_data, type = "prob")
+
+  # Calculate the ROC curve
+  roc_curve <- roc(response = test_data$satisfaction, predictor = prob_predictions[, "1"])
+
+  # Extract the FPR and TPR from the ROC curve for plotting
+  roc_data <- coords(roc_curve, "local maximas", ret = c("fpr", "tpr"), transpose = FALSE)
+
+  # Create a data frame for the extracted ROC data
+  roc_df <- data.frame(FPR = roc_data$fpr, TPR = roc_data$tpr)
+
+  # Plot the ROC curve
+  print(ggplot(roc_df, aes(x = FPR, y = TPR)) +
+      geom_line() + 
+      geom_abline(linetype = "dashed") +
+      xlim(c(0, 1)) + ylim(c(0, 1)) +
+      labs(title = "ROC Curve", x = "False Positive Rate", y = "True Positive Rate") +
+      theme_minimal() +
+      coord_fixed(ratio = 1))
+
+  # Calculate AUC
+  auc_score <- auc(roc_curve)
+  print(paste("AUC Score on Test Set:", auc_score))
+
+  # Calculate Accuracy
+  accuracy <- conf_matrix$overall['Accuracy']
+  print(paste("Accuracy on Test Set:", accuracy))
+}
+
+# Create train and test split indices
+train_indices <- createDataPartition(cleaned$satisfaction, p = 0.8, list = FALSE, times = 1)
+
+# Create train and test datasets
+train_data_forest <- cleaned[train_indices, ]
+test_data_forest <- cleaned[-train_indices, ]
+
+# Convert satisfaction field into factor
+train_data_forest$satisfaction <- as.factor(train_data_forest$satisfaction)
+test_data_forest$satisfaction <- as.factor(test_data_forest$satisfaction)
+
+# Run the random forest model on the cleaned dataset with trees=300 (optimal value found)
+random_forest_model(train_data_forest, test_data_forest, 300)
+```
